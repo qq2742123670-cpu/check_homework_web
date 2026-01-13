@@ -6,13 +6,14 @@ import pandas as pd
 from pathlib import Path
 import io
 import zipfile
+import tempfile
+import shutil
 
-# ==========================================
+# ==============================
 # 0. 页面配置与 CSS 样式
-# ==========================================
+# ================================
 st.set_page_config(page_title="作业提交检查助手", layout="wide", page_icon="📝")
-
-# 添加自定义 CSS 以支持侧边栏的样式
+# 添加自定义 CSS
 st.markdown("""
 <style>
     section[data-testid="stSidebar"] {
@@ -37,14 +38,14 @@ st.markdown("""
         color: #666;
         font-size: 0.8em;
     }
-    
+
 </style>
 """, unsafe_allow_html=True)
 
-# ==========================================
-# 1. 核心逻辑函数
-# ==========================================
 
+# =======================================
+# 1. 核心逻辑函数
+# ========================================
 def extract_student_id_from_filename(filename):
     """从文件名中提取前9位数字作为学号"""
     match = re.search(r'\d{9}', filename)
@@ -82,8 +83,6 @@ def process_roster_file(roster_file):
             print(f"预扫描表头失败，将尝试默认读取: {pre_e}")
         # 使用确定的 header_index 正式读取数据
         df = pd.read_excel(uploaded_file, header=header_index)
-        # 以下逻辑保持不变，用于在DataFrame中定位具体的列名
-        #df = pd.read_excel(roster_file)
 
         # 查找学号列
         student_id_col = None
@@ -206,9 +205,10 @@ def check_homework_in_folder(folder_path, roster_student_ids, target_extensions=
         st.error(f"检查文件夹 {folder_path} 时出错: {e}")
         return None
 
-# ==========================================
+
+# ===========================
 # 2. 状态初始化
-# ==========================================
+# =============================
 if 'roster_data' not in st.session_state:
     st.session_state.roster_data = None
 if 'student_id_to_name' not in st.session_state:
@@ -220,13 +220,16 @@ if 'folder_results' not in st.session_state:
 if 'check_performed' not in st.session_state:
     st.session_state.check_performed = False
 
-# ==========================================
-# 3. 侧边栏逻辑 (集成你的代码)
-# ==========================================
+if 'folder_display_names' not in st.session_state:
+    st.session_state.folder_display_names = {} # 新增：路径 -> 显示名称的映射
+
+# ==========================
+# 3. 侧边栏逻辑
+# =============================
 with st.sidebar:
     st.markdown('<h1 class="sub-header">🛠 配置选项</h1>', unsafe_allow_html=True)
 
-    # 上传花名册文件
+    # 1 上传花名册文件
     st.subheader("1️⃣ 上传花名册")
     uploaded_file = st.file_uploader("选择花名册Excel文件", type=['xlsx', 'xls'])
 
@@ -241,9 +244,7 @@ with st.sidebar:
                     st.session_state.check_performed = False
                     st.success(f"花名册处理完成！共读取 {roster_data['total_students']} 名学生")
 
-    #st.divider()
-
-    # --- 新增：文件类型配置 ---
+    # 2 文件类型配置
     st.subheader("2️⃣ 文件查找配置")
     check_all_types = st.checkbox("查找所有类型文件(无视后缀)🔍", value=False)
 
@@ -264,48 +265,85 @@ with st.sidebar:
     else:
         st.caption("当前将查找文件夹内包含学号的 **所有** 文件")
 
-    #st.divider()
+    # 3 添加作业文件夹
+    st.subheader("3️⃣ 添加作业文件")
 
-    # 添加作业文件夹
-    st.subheader("3️⃣ 添加作业文件夹")
-    folder_input = st.text_input("输入文件夹路径 🔗", placeholder="例如: D:\\Teaching\\作业1")
+    # 使用 Tabs 分开两种添加方式
+    tab_local, tab_upload = st.tabs(["📂 本地路径", "📦 上传压缩包"])
 
-    col1, col2 = st.columns(2)
-    with col1:
-        if st.button("添加文件夹", use_container_width=True):
+    # --- 方式 A: 本地路径 (原逻辑) ---
+    with tab_local:
+        folder_input = st.text_input("输入文件夹路径（绝对路径）", placeholder="例如: D:\\Teaching\\作业1")
+        if st.button("添加路径", use_container_width=True):
             if folder_input and os.path.exists(folder_input):
-                # 统一路径格式
                 abs_path = str(Path(folder_input).absolute())
                 if abs_path not in st.session_state.folder_paths:
                     st.session_state.folder_paths.append(abs_path)
-                    st.session_state.check_performed = False  # 重置检查状态
-                    st.success("已添加")
-                    st.rerun()  # 重新运行以刷新列表显示
+                    # 本地路径的显示名就是它自己
+                    st.session_state.folder_display_names[abs_path] = os.path.basename(abs_path)
+                    st.session_state.check_performed = False
+                    st.success(f"已添加: {os.path.basename(abs_path)}")
+                    st.rerun()
                 else:
                     st.warning("该文件夹已存在")
             else:
                 st.error("路径无效")
 
-    with col2:
-        if st.button("清空列表", use_container_width=True, type="secondary"):
+    # --- 方式 B: 上传压缩包 ---
+    with tab_upload:
+        uploaded_zip = st.file_uploader("上传作业ZIP包", type="zip")
+        if uploaded_zip and st.button("解压并添加", use_container_width=True):
+            try:
+                # 1. 创建临时目录
+                temp_dir = tempfile.mkdtemp(prefix="my_temporary_file_")
+
+                # 2. 解压文件
+                with zipfile.ZipFile(uploaded_zip, 'r') as zf:
+                    zf.extractall(temp_dir)
+
+                # 3. 添加到路径列表 (逻辑同上)
+                if temp_dir not in st.session_state.folder_paths:
+                    st.session_state.folder_paths.append(temp_dir)
+                    # 把临时路径映射为上传的文件名，方便显示
+                    st.session_state.folder_display_names[temp_dir] = f"📦 {uploaded_zip.name}"
+                    st.session_state.check_performed = False
+                    st.success(f"已解压并添加: {uploaded_zip.name}")
+                    st.rerun()
+            except Exception as e:
+                st.error(f"解压失败: {e}")
+
+    col_clear = st.columns(1)[0]
+    with col_clear:
+        if st.button("清空所有来源", use_container_width=True, type="secondary"):
+            # 遍历 folder_paths 删除临时目录
+            for path in st.session_state.folder_paths:
+                # 安全检查：路径存在，且确实是我们创建的临时目录（通过名字包含前缀判断，防止误删）
+                if os.path.exists(path) and "my_temporary_file_" in path:
+                    try:
+                        shutil.rmtree(path)  # 删除文件夹及其内容
+                        print(f"已清理临时目录: {path}")  # 后台打印日志
+                    except Exception as e:
+                        st.error(f"清理目录 {path} 失败: {e}")
             st.session_state.folder_paths = []
+            st.session_state.folder_display_names = {}  # 清空映射
             st.session_state.folder_results = {}
             st.session_state.check_performed = False
             st.rerun()
 
-    # 显示已添加的文件夹 (使用 Container 实现滚动)
+    # 显示已添加的列表
     if st.session_state.folder_paths:
         st.subheader(f"已添加 ({len(st.session_state.folder_paths)})")
         container = st.container(height=200)
-        for i, folder in enumerate(st.session_state.folder_paths):
-            container.markdown(f"""
-            <div class="folder-item">
-                <strong>{i + 1}. {os.path.basename(folder)}</strong><br>
-                <small title="{folder}">{folder}</small>
-            </div>
-            """, unsafe_allow_html=True)
+        for i, folder_path in enumerate(st.session_state.folder_paths):
+            # 获取显示名称，如果没有映射则显示 basename
+            display_name = st.session_state.folder_display_names.get(folder_path, os.path.basename(folder_path))
 
-    st.divider()
+            container.markdown(f"""
+                <div class="folder-item">
+                    <strong>{i + 1}. {display_name}</strong><br>
+                    <small title="{folder_path}">{folder_path}</small>
+                </div>
+                """, unsafe_allow_html=True)
 
 # ==========================================
 # 4. 主界面逻辑 (可视化与下载)
@@ -320,15 +358,16 @@ if not st.session_state.check_performed:
     ### 使用指南
     1. **上传花名册**：Excel文件需包含“学号”和“姓名”列。
     2. **文件查找配置**：可以指定要查找的文件类型，或者查找所有类型文件。
-    3. **添加文件夹**：复制电脑上的文件夹路径粘贴到输入框中，点击添加。支持添加多个不同位置的文件夹。
+    3. **添加文件夹**：复制电脑上的文件夹路径粘贴到输入框中，点击添加，或者上传.zip格式的压缩包并解压。
     4. **开始检查**：点击按钮，系统将自动比对名单。
     5. **查看结果**：系统将显示提交统计、可视化图表和未交名单.
     6. **下载文件**：可以下载打包文件.zip或者单个文件.xlsx/.txt。
-    
+
     ### 文件要求：
     - **花名册文件**：Excel格式，需包含9位学号和姓名列。
     - **作业文件**：支持多种格式，但文件名中需包含9位学号。
     - **文件夹路径**：确保有访问权限的本地文件夹路径。
+    - **压缩包格式**：必须是.zip文件。
     """)
     # 开始检查按钮
     # 只有当花名册和文件夹都有的时候才显示主按钮
@@ -339,7 +378,8 @@ if not st.session_state.check_performed:
         with st.spinner("正在检查作业提交情况..."):
             folder_results = {}
             for folder_path in st.session_state.folder_paths:
-                folder_name = os.path.basename(folder_path)
+                # 优先使用我们记录的名字（如 "📦 作业1.zip"），找不到才用文件夹名
+                folder_name = st.session_state.folder_display_names.get(folder_path, os.path.basename(folder_path))
                 # !!! 注意这里传入了新的参数 !!!
                 result = check_homework_in_folder(
                     folder_path,
@@ -469,7 +509,7 @@ else:
 
                     # 2. 显示提交文件类型详情 (新增功能)
                     if res['file_type_stats']:
-                        all_count=0
+                        all_count = 0
                         for ext, count in res['file_type_stats'].items():
                             all_count += count
                         # 1. 显示提交大数字
@@ -519,7 +559,7 @@ else:
     if not generated_files_list:
         st.info("没有生成任何名单文件。")
     else:
-    # 方式一：打包下载
+        # 方式一：打包下载
         st.subheader("📦- 打包下载所有文件")
         # 生成 ZIP
         zip_buffer = io.BytesIO()
@@ -534,7 +574,7 @@ else:
             use_container_width=True,
             type="primary"
         )
-    # 方式二：单独下载
+        # 方式二：单独下载
         st.subheader("📜- 单独下载指定文件")
         cols = st.columns(2)
 
