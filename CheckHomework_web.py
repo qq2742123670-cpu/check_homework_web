@@ -53,14 +53,13 @@ def extract_student_id_from_filename(filename):
         return match.group()
     return None
 
-
-def process_roster_file(roster_file):
-    """处理花名册文件，返回结构化数据"""
+def get_student_info_from_roster(roster_file):
+    """从花名册.xlsx中读取所有学号和姓名，返回学号到姓名的字典和学号集合"""
     try:
         header_index = 0  # 默认表头为第0行（第一行）
         try:
             # 预读取前6行（header=None表示不指定表头，全作为数据读入）
-            df_preview = pd.read_excel(uploaded_file, header=None, nrows=6)
+            df_preview = pd.read_excel(roster_file, header=None, nrows=6)
 
             # 循环检查前5行
             found_header = False
@@ -75,14 +74,12 @@ def process_roster_file(roster_file):
                     print(f"在 Excel 第 {i + 1} 行检测到表头关键字，将以此行作为表头读取。")
                     found_header = True
                     break
-
             if not found_header:
                 print("在前5行未检测到'学号'或'姓名'关键字，将默认使用第1行作为表头。")
-
         except Exception as pre_e:
             print(f"预扫描表头失败，将尝试默认读取: {pre_e}")
         # 使用确定的 header_index 正式读取数据
-        df = pd.read_excel(uploaded_file, header=header_index)
+        df = pd.read_excel(roster_file, header=header_index)
 
         # 查找学号列
         student_id_col = None
@@ -158,9 +155,6 @@ def process_roster_file(roster_file):
 
 
 def check_homework_in_folder(folder_path, roster_student_ids, target_extensions=None, check_all_types=False):
-    """
-    检查指定文件夹中的作业文件，支持自定义后缀筛选
-    """
     try:
         # 获取文件夹下所有文件
         all_files = [f for f in Path(folder_path).iterdir() if f.is_file()]
@@ -174,7 +168,6 @@ def check_homework_in_folder(folder_path, roster_student_ids, target_extensions=
 
             # 1. 提取学号
             student_id = extract_student_id_from_filename(file_name)
-
             if student_id:
                 # 2. 判断是否符合文件类型要求
                 is_valid_type = False
@@ -219,9 +212,8 @@ if 'folder_results' not in st.session_state:
     st.session_state.folder_results = {}
 if 'check_performed' not in st.session_state:
     st.session_state.check_performed = False
-
 if 'folder_display_names' not in st.session_state:
-    st.session_state.folder_display_names = {} # 新增：路径 -> 显示名称的映射
+    st.session_state.folder_display_names = {}
 
 # ==========================
 # 3. 侧边栏逻辑
@@ -236,7 +228,7 @@ with st.sidebar:
     if uploaded_file is not None:
         if st.button("处理花名册", type="primary"):
             with st.spinner("正在处理花名册..."):
-                roster_data = process_roster_file(uploaded_file)
+                roster_data = get_student_info_from_roster(uploaded_file)
                 if roster_data:
                     st.session_state.roster_data = roster_data
                     st.session_state.student_id_to_name = roster_data['student_id_to_name']
@@ -267,11 +259,9 @@ with st.sidebar:
 
     # 3 添加作业文件夹
     st.subheader("3️⃣ 添加作业文件")
-
     # 使用 Tabs 分开两种添加方式
     tab_local, tab_upload = st.tabs(["📂 本地路径", "📦 上传压缩包"])
-
-    # --- 方式 A: 本地路径 (原逻辑) ---
+    # 方式 1: 本地路径
     with tab_local:
         folder_input = st.text_input("输入文件夹路径（绝对路径）", placeholder="例如: D:\\Teaching\\作业1")
         if st.button("添加路径", use_container_width=True):
@@ -288,19 +278,16 @@ with st.sidebar:
                     st.warning("该文件夹已存在")
             else:
                 st.error("路径无效")
-
-    # --- 方式 B: 上传压缩包 ---
+    # 方式 2: 上传压缩包
     with tab_upload:
         uploaded_zip = st.file_uploader("上传作业ZIP包", type="zip")
         if uploaded_zip and st.button("解压并添加", use_container_width=True):
             try:
                 # 1. 创建临时目录
                 temp_dir = tempfile.mkdtemp(prefix="my_temporary_file_")
-
                 # 2. 解压文件
                 with zipfile.ZipFile(uploaded_zip, 'r') as zf:
                     zf.extractall(temp_dir)
-
                 # 3. 添加到路径列表 (逻辑同上)
                 if temp_dir not in st.session_state.folder_paths:
                     st.session_state.folder_paths.append(temp_dir)
@@ -349,10 +336,16 @@ with st.sidebar:
 # 4. 主界面逻辑 (可视化与下载)
 # ==========================================
 
-st.title("📝 学生作业查收与可视化工具")
+
 
 if not st.session_state.check_performed:
-    st.info("""#### 👈🫡 请在左侧侧边栏上传花名册，进行文件查找配置，并添加作业文件夹，然后点击“开始检查作业”。""")
+    st.title("📝 学生作业查收与可视化工具")
+    st.info("#### 👈🫡 请在左侧侧边栏上传花名册，进行文件查找配置，并添加作业文件夹，然后点击“开始检查作业”。")
+    st.image("https://i.postimg.cc/BQwCtNRP/hui-ye.png")
+    #st.image(["https://i.postimg.cc/N04CzQ9P/1f9cdf066d4a1b4031700901a06a4a2d.png","https://i.postimg.cc/N04CzQ9P/1f9cdf066d4a1b4031700901a06a4a2d.png","https://i.postimg.cc/N04CzQ9P/1f9cdf066d4a1b4031700901a06a4a2d.png"])
+    st.divider()
+    ready_to_check = st.session_state.roster_data and st.session_state.folder_paths
+    check_final=st.button("开始检查作业✔️", type="primary", use_container_width=True, disabled=not ready_to_check)
     # 显示使用指南
     st.markdown("""
     ### 使用指南
@@ -369,12 +362,9 @@ if not st.session_state.check_performed:
     - **文件夹路径**：确保有访问权限的本地文件夹路径。
     - **压缩包格式**：必须是.zip文件。
     """)
-    # 开始检查按钮
     # 只有当花名册和文件夹都有的时候才显示主按钮
-    ready_to_check = st.session_state.roster_data and st.session_state.folder_paths
 
-    # ... (在“开始检查”按钮逻辑中，调用新的 check 函数) ...
-    if st.button("开始检查作业✔️", type="primary", use_container_width=True, disabled=not ready_to_check):
+    if check_final:
         with st.spinner("正在检查作业提交情况..."):
             folder_results = {}
             for folder_path in st.session_state.folder_paths:
@@ -396,6 +386,7 @@ if not st.session_state.check_performed:
             st.rerun()  # 强制刷新主界面显示结果
 
 else:
+
     # ------------------
     # 4.1 数据准备
     # ------------------
@@ -431,25 +422,20 @@ else:
             df_out = pd.DataFrame([{"学号": sid, "姓名": id_map.get(sid, "未知")} for sid in missing_list])
             excel_buffer = io.BytesIO()
             df_out.to_excel(excel_buffer, index=False)
-
             # TXT
             txt_content = f"未交作业名单 - {folder_name}\n" + "=" * 30 + "\n"
             for sid in missing_list:
                 txt_content += f"{sid}\t{id_map.get(sid, '未知')}\n"
-
             generated_files_list.append({
                 "filename": f"未交名单_{folder_name}.xlsx",
                 "data": excel_buffer.getvalue(),
                 "mime": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                "folder": folder_name
-            })
+                "folder": folder_name })
             generated_files_list.append({
                 "filename": f"未交名单_{folder_name}.txt",
                 "data": txt_content.encode('utf-8'),
                 "mime": "text/plain",
-                "folder": folder_name
-            })
-
+                "folder": folder_name })
     # 生成汇总文件
     if total_missing_all:
         df_total = pd.DataFrame(total_missing_all)
@@ -465,29 +451,24 @@ else:
     # ------------------
     # 4.2 可视化展示
     # ------------------
-    st.divider()
-
+    #st.divider()
     # 概览图表
     col_chart, col_stat = st.columns([2, 1])
     with col_chart:
         st.subheader("📊 提交情况概览")
         if chart_data:
             st.bar_chart(pd.DataFrame(chart_data).set_index("作业文件夹")[["已提交", "未提交"]])
-
     with col_stat:
         st.subheader("📈 统计数据")
         total_submitted = sum(d['已提交'] for d in chart_data)
         total_missing = sum(d['未提交'] for d in chart_data)
         st.metric("总已交作业份数", total_submitted)
         st.metric("总缺交作业人次", total_missing, delta_color="inverse")
-
     # 详细名单 Tabs
-    st.subheader("🫣 详细缺交名单")
-
+    st.subheader("![](https://i.postimg.cc/RhGxw2w9/qian-hua.jpg) 详细缺交名单")
     # 动态创建 Tabs
     tab_labels = ["汇总视图"] + list(results.keys())
     tabs = st.tabs(tab_labels)
-
     # Tab 1: 汇总
     with tabs[0]:
         if total_missing_all:
@@ -495,19 +476,15 @@ else:
         else:
             st.success("🎉 所有文件夹作业均已收齐！")
 
-        # ... (在主界面的 Tabs 循环中) ...
-
-        # Tab 2+: 各个文件夹
+    # Tab 2+: 各个文件夹
         for i, (folder_name, res) in enumerate(results.items()):
             with tabs[i + 1]:
                 c1, c2 = st.columns([1, 2])
-
-                # --- c1: 统计数据 ---
+                # c1: 统计数据
                 with c1:
                     # 1. 显示缺交大数字
                     st.metric(f"{folder_name} - ❌ ", f"😡{res['missing_count']} 人-缺交")
-
-                    # 2. 显示提交文件类型详情 (新增功能)
+                    # 2. 显示提交文件类型详情
                     if res['file_type_stats']:
                         all_count = 0
                         for ext, count in res['file_type_stats'].items():
@@ -520,7 +497,6 @@ else:
                             for ext, count in res['file_type_stats'].items()
                         ]
                         df_stats = pd.DataFrame(stats_data).sort_values("数量", ascending=False)
-
                         # 使用 st.dataframe 展示，隐藏索引，调整高度
                         st.dataframe(
                             df_stats,
@@ -538,8 +514,7 @@ else:
                         )
                     else:
                         st.caption("没有检测到符合条件的文件。")
-
-                # --- c2: 缺交名单 (保持不变) ---
+                # c2: 缺交名单 (保持不变)
                 with c2:
                     st.markdown("##### 🫵 缺交学生名单")
                     if res['missing_ids']:
@@ -554,7 +529,7 @@ else:
     # 4.3 下载中心
     # ------------------
     st.markdown("---")
-    st.header("👾 下载中心")
+    st.header("![](https://i.postimg.cc/fydBNdRw/shi-shang.jpg) 下载中心")
 
     if not generated_files_list:
         st.info("没有生成任何名单文件。")
