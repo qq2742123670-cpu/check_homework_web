@@ -465,6 +465,7 @@ else:
         total_missing = sum(d['未提交'] for d in chart_data)
         st.metric("总已交作业份数", total_submitted)
         st.metric("总缺交作业人次", total_missing, delta_color="inverse")
+        st.metric("总提交率", f"{total_submitted/total_missing*100:.3g}%",delta_color="inverse")
     # 详细名单 Tabs
     st.subheader("![](https://i.postimg.cc/RhGxw2w9/qian-hua.jpg) 详细缺交名单")
     # 动态创建 Tabs
@@ -578,3 +579,4 @@ else:
                 mime=f['mime'],
                 key=f"dl_norm_{i}"
             )
+
