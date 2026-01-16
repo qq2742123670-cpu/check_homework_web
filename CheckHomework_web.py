@@ -186,7 +186,7 @@ def check_homework_in_folder(folder_path, roster_student_ids, target_extensions=
                         file_type_stats[file_ext] = 1
 
         missing_ids = roster_student_ids - submitted_ids
-
+        submitted_ids = roster_student_ids - missing_ids
         return {
             'submitted_ids': submitted_ids,
             'missing_ids': missing_ids,
