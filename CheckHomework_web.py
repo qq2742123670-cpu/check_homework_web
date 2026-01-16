@@ -168,7 +168,7 @@ def check_homework_in_folder(folder_path, roster_student_ids, target_extensions=
 
             # 1. 提取学号
             student_id = extract_student_id_from_filename(file_name)
-            if student_id:
+            if student_id in roster_student_ids:
                 # 2. 判断是否符合文件类型要求
                 is_valid_type = False
                 if check_all_types:
@@ -219,6 +219,7 @@ if 'folder_display_names' not in st.session_state:
 # 3. 侧边栏逻辑
 # =============================
 with st.sidebar:
+
     st.markdown('<h1 class="sub-header">🛠 配置选项</h1>', unsafe_allow_html=True)
 
     # 1 上传花名册文件
